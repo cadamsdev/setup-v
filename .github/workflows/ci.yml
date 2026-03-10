@@ -43,7 +43,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        scenario: [check-latest, stable, check-latest-stable, version]
+        scenario: [check-latest, stable, version]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -66,14 +66,6 @@ jobs:
         if: matrix.scenario == 'stable'
         uses: ./
         with:
-          stable: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run Action (check-latest-stable)
-        if: matrix.scenario == 'check-latest-stable'
-        uses: ./
-        with:
-          check-latest: true
           stable: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
