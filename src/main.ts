@@ -42,16 +42,11 @@ async function run(): Promise<void> {
     const installDir = installer.getInstallDir(arch)
     const translatedArch = installer.translateArchToDistUrl(arch)
 
-    // Build a cache key without making any API calls.
-    // For checkLatest+stable we use a fixed "stable" suffix so we can check
-    // the cache before resolving the exact version from the API.
-    // HEAD builds (checkLatest && !stable) have no stable key, so skip caching.
-    let cacheKey: string | null = null
-    if (!checkLatest && version) {
-      cacheKey = `setup-v-${os.platform()}-${translatedArch}-${version}`
-    } else if (checkLatest && stable) {
-      cacheKey = `setup-v-${os.platform()}-${translatedArch}-stable`
-    }
+    // Only cache pinned-version installs — checkLatest builds are non-deterministic.
+    const cacheKey =
+      version && !checkLatest
+        ? `setup-v-${os.platform()}-${translatedArch}-${version}`
+        : null
 
     // --- cache restore (before any API calls) ---
     if (cacheEnabled && cacheKey) {

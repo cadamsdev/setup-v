@@ -323,7 +323,6 @@ const path = __importStar(__nccwpck_require__(6928));
 const tc = __importStar(__nccwpck_require__(3472));
 const util = __importStar(__nccwpck_require__(9023));
 const state_helper_1 = __nccwpck_require__(8209);
-const github_api_helper_1 = __nccwpck_require__(4985);
 exports.execer = util.promisify(cp.exec);
 async function run() {
     try {
@@ -347,17 +346,10 @@ async function run() {
         const cacheEnabled = strToBoolean(core.getInput('cache') || 'true');
         const installDir = installer.getInstallDir(arch);
         const translatedArch = installer.translateArchToDistUrl(arch);
-        // Build a cache key without making any API calls.
-        // For checkLatest+stable we use a fixed "stable" suffix so we can check
-        // the cache before resolving the exact version from the API.
-        // HEAD builds (checkLatest && !stable) have no stable key, so skip caching.
-        let cacheKey = null;
-        if (!checkLatest && version) {
-            cacheKey = `setup-v-${os.platform()}-${translatedArch}-${version}`;
-        }
-        else if (checkLatest && stable) {
-            cacheKey = `setup-v-${os.platform()}-${translatedArch}-stable`;
-        }
+        // Only cache pinned-version installs — checkLatest builds are non-deterministic.
+        const cacheKey = version && !checkLatest
+            ? `setup-v-${os.platform()}-${translatedArch}-${version}`
+            : null;
         // --- cache restore (before any API calls) ---
         if (cacheEnabled && cacheKey) {
             core.info(`Checking cache for key: ${cacheKey}`);
@@ -375,16 +367,6 @@ async function run() {
             }
             core.info('Cache miss — proceeding with download');
         }
-        // --- resolve ref (API call only on cache miss) ---
-        let resolvedRef;
-        if (checkLatest && stable) {
-            core.info('Checking latest stable release...');
-            resolvedRef = await (0, github_api_helper_1.getLatestRelease)(token, 'vlang', 'v');
-        }
-        else if (!checkLatest) {
-            resolvedRef = version || undefined;
-        }
-        // checkLatest && !stable → resolvedRef stays undefined (download HEAD)
         // --- install ---
         const binPath = await installer.getVlang({
             authToken: token,
@@ -392,7 +374,7 @@ async function run() {
             checkLatest,
             stable,
             arch,
-            resolvedRef
+            resolvedRef: !checkLatest ? (version || undefined) : undefined
         });
         core.info('Adding v to the tool cache...');
         const installedVersion = await getVersion(binPath);
