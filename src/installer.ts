@@ -14,6 +14,14 @@ export interface GetVlangRequest {
   checkLatest: boolean
   stable?: boolean
   arch?: string
+  resolvedRef?: string
+}
+
+export function getInstallDir(arch: string = os.arch()): string {
+  const osPlat: string = os.platform()
+  const osArch: string = translateArchToDistUrl(arch)
+  const vlangDir = path.join(os.homedir(), 'vlang')
+  return path.join(vlangDir, `vlang_${osPlat}_${osArch}`)
 }
 
 export async function getVlang({
@@ -21,21 +29,22 @@ export async function getVlang({
   version,
   checkLatest,
   stable,
-  arch = os.arch()
+  arch = os.arch(),
+  resolvedRef
 }: GetVlangRequest): Promise<string> {
-  const osPlat: string = os.platform()
-  const osArch: string = translateArchToDistUrl(arch)
-  const vlangDir = path.join(os.homedir(), 'vlang')
-  const installDir = path.join(vlangDir, `vlang_${osPlat}_${osArch}`)
+  const installDir = getInstallDir(arch)
   const vBinPath = path.join(installDir, 'v')
 
   if (fs.existsSync(installDir)) {
     return installDir
   }
 
-  let correctedRef = version
+  let correctedRef: string
 
-  if (checkLatest) {
+  if (resolvedRef !== undefined) {
+    // Ref was already resolved by the caller (e.g. after a cache miss).
+    correctedRef = resolvedRef
+  } else if (checkLatest) {
     core.info('Checking latest release...')
     correctedRef = ''
 
@@ -47,6 +56,8 @@ export async function getVlang({
         VLANG_GITHUB_REPO
       )
     }
+  } else {
+    correctedRef = version
   }
 
   core.info(`Downloading vlang ${correctedRef}...`)
@@ -68,7 +79,7 @@ export async function getVlang({
   return installDir
 }
 
-function translateArchToDistUrl(arch: string): string {
+export function translateArchToDistUrl(arch: string): string {
   const platformMap: Record<string, string> = {
     darwin: 'macos',
     win32: 'windows'

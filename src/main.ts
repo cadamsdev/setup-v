@@ -1,3 +1,4 @@
+import * as cache from '@actions/cache'
 import * as core from '@actions/core'
 import * as cp from 'child_process'
 import * as fs from 'fs'
@@ -7,6 +8,7 @@ import * as path from 'path'
 import * as tc from '@actions/tool-cache'
 import * as util from 'util'
 import {IS_POST} from './state-helper'
+import {getLatestRelease} from './github-api-helper'
 
 export const execer = util.promisify(cp.exec)
 
@@ -35,27 +37,77 @@ async function run(): Promise<void> {
     const token = core.getInput('token', {required: true})
     const stable = strToBoolean(core.getInput('stable') || 'false')
     const checkLatest = strToBoolean(core.getInput('check-latest') || 'false')
+    const cacheEnabled = strToBoolean(core.getInput('cache') || 'true')
 
+    const installDir = installer.getInstallDir(arch)
+    const translatedArch = installer.translateArchToDistUrl(arch)
+
+    // Build a cache key without making any API calls.
+    // For checkLatest+stable we use a fixed "stable" suffix so we can check
+    // the cache before resolving the exact version from the API.
+    // HEAD builds (checkLatest && !stable) have no stable key, so skip caching.
+    let cacheKey: string | null = null
+    if (!checkLatest && version) {
+      cacheKey = `setup-v-${os.platform()}-${translatedArch}-${version}`
+    } else if (checkLatest && stable) {
+      cacheKey = `setup-v-${os.platform()}-${translatedArch}-stable`
+    }
+
+    // --- cache restore (before any API calls) ---
+    if (cacheEnabled && cacheKey) {
+      core.info(`Checking cache for key: ${cacheKey}`)
+      const cacheHit = await cache.restoreCache([installDir], cacheKey)
+      if (cacheHit) {
+        core.info('Cache hit — skipping download')
+        const installedVersion = await getVersion(installDir)
+        const cachedPath = await tc.cacheDir(installDir, 'v', installedVersion)
+        core.addPath(cachedPath)
+        core.setOutput('bin-path', installDir)
+        core.setOutput('v-bin-path', path.join(installDir, 'v'))
+        core.setOutput('version', installedVersion)
+        core.setOutput('architecture', arch)
+        return
+      }
+      core.info('Cache miss — proceeding with download')
+    }
+
+    // --- resolve ref (API call only on cache miss) ---
+    let resolvedRef: string | undefined
+    if (checkLatest && stable) {
+      core.info('Checking latest stable release...')
+      resolvedRef = await getLatestRelease(token, 'vlang', 'v')
+    } else if (!checkLatest) {
+      resolvedRef = version || undefined
+    }
+    // checkLatest && !stable → resolvedRef stays undefined (download HEAD)
+
+    // --- install ---
     const binPath = await installer.getVlang({
       authToken: token,
       version,
       checkLatest,
       stable,
-      arch
+      arch,
+      resolvedRef
     })
 
-    core.info('Adding v to the cache...')
+    core.info('Adding v to the tool cache...')
     const installedVersion = await getVersion(binPath)
     const cachedPath = await tc.cacheDir(binPath, 'v', installedVersion)
     core.info(`Cached v to: ${cachedPath}`)
 
     core.addPath(cachedPath)
 
-    const vBinPath = path.join(binPath, 'v')
     core.setOutput('bin-path', binPath)
-    core.setOutput('v-bin-path', vBinPath)
+    core.setOutput('v-bin-path', path.join(binPath, 'v'))
     core.setOutput('version', installedVersion)
     core.setOutput('architecture', arch)
+
+    // --- cache save ---
+    if (cacheEnabled && cacheKey) {
+      core.info(`Saving cache with key: ${cacheKey}`)
+      await cache.saveCache([installDir], cacheKey)
+    }
   } catch (error) {
     if (error instanceof Error) core.setFailed(error.message)
   }
@@ -64,6 +116,8 @@ async function run(): Promise<void> {
 export async function cleanup(): Promise<void> {
   // @todo: implement
 }
+
+export {run}
 
 function resolveVersionInput(): string {
   let version = core.getInput('version')

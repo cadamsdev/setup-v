@@ -27,6 +27,9 @@ inputs:
     default: 'false'
   architecture:
     description: 'Target architecture for V to use. Examples: linux, macos, windows. Will use system architecture by default.'
+  cache:
+    description: 'Whether to cache the V installation across workflow runs. Set to false to disable caching.'
+    default: 'true'
 outputs:
   bin-path:
     description: 'Path to the directory that contains the V binary'
